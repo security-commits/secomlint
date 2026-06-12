@@ -2,8 +2,9 @@ import re
 from typing import List, Optional, Iterator, Union
 
 from secomlint.section import Header, Body, Metadata, Contact, Bugtracker
-from secomlint.extractor import Extractor
 from secomlint.tags import TAGS, CONTACT, METADATA, BUG_TRACKER
+
+from security_ner import load
 
 
 # Precompile regex for performance and clarity
@@ -19,17 +20,24 @@ class Message:
     contacts, and bugtracker info.
     """
 
-    def __init__(self, lines: List[str]) -> None:
+    def __init__(self, lines: List[str], ner=None) -> None:
         """
         Initialize the Message object with the raw lines of text.
 
         :param lines: A list of raw lines (strings) that comprise the message.
+        :param ner: A security_ner model. Defaults to the shared (cached)
+            "commits" model, so constructing many Messages does not reload it.
         """
         self.raw_text: List[str] = lines
         # Make a shallow copy to avoid accidental in-place modifications.
         self.text: List[str] = lines[:]
         self.sections: List[Union[Header, Body, Metadata, Contact, Bugtracker]] = []
-        self.extractor = Extractor()
+        self._ner = ner or load("commits")
+
+    def _entities(self, lines: List[str]):
+        """Run the NER over the given lines and return (text, label, id) tuples."""
+        entities = self._ner.extract("\n".join(lines))
+        return [(entity.text, entity.label, entity.id) for entity in entities]
 
     def parse(self) -> None:
         """
@@ -46,14 +54,14 @@ class Message:
                 continue
             if i == 0 and len(lines_chunk) == 1:
                 self.sections.append(
-                    Header(lines=lines_chunk, entities=self.extractor.entities(lines_chunk))
+                    Header(lines=lines_chunk, entities=self._entities(lines_chunk))
                 )
                 continue
 
             # Check if the chunk is recognized as a body
             if i == 1 and self._is_body_section(lines_chunk):
                 self.sections.append(
-                    Body(lines=lines_chunk, entities=self.extractor.entities(lines_chunk))
+                    Body(lines=lines_chunk, entities=self._entities(lines_chunk))
                 )
                 continue
 
@@ -66,7 +74,7 @@ class Message:
                         Metadata(
                             lines=line,
                             tag=metadata_tag,
-                            entities=self.extractor.entities([line])
+                            entities=self._entities([line])
                         )
                     )
                     continue
@@ -77,7 +85,7 @@ class Message:
                         Contact(
                             lines=line,
                             tag=contact_tag,
-                            entities=self.extractor.entities([line])
+                            entities=self._entities([line])
                         )
                     )
                     continue
@@ -89,7 +97,7 @@ class Message:
                         bugtracker_section = Bugtracker(
                             lines=[line],
                             tag="reference",
-                            entities=self.extractor.entities([line])
+                            entities=self._entities([line])
                         )
                     continue
             # If a bugtracker section was created or appended, finalize it for this chunk

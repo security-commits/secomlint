@@ -28,7 +28,7 @@ classifiers = [
 
 dependencies = [
     "pandas",
-    "spacy",
+    "security-ner>=0.1",
     "pyyaml",
     "click",
     "openai>=2.0"
@@ -54,7 +54,7 @@ exclude = ["docs*", "secomlint.tests*"]
 include-package-data = true
 
 [tool.setuptools.package-data]
-tenet = ["entities/patterns.jsonl", "config/rules.yml"]
+"secomlint" = ["config/rules.yml"]
 
 [project.scripts]
 secomlint = "secomlint.__main__:main"
