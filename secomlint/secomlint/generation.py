@@ -1,9 +1,19 @@
-import click
+import os
 import subprocess
 
-import openai
+import click
+from openai import OpenAI
 
-TEMPLATE = """Generate a commit message with the following structure 
+
+DEFAULT_MODEL = "gpt-4o-mini"
+
+SYSTEM_PROMPT = (
+    "You are an assistant that writes security commit messages following the "
+    "SECOM convention (https://security-commits.org/secom/). Return only the "
+    "commit message, with no surrounding explanation or code fences."
+)
+
+TEMPLATE = """Generate a commit message with the following structure
 
 vuln-fix: <header/subject> (<Vuln-ID>)
 
@@ -33,54 +43,68 @@ for the code changes below:
 
 """
 
+
 class Generation:
-    def __init__(self, key) -> None:
-        openai.api_key = key
-        git_command = subprocess.run(["git", "show", "HEAD"], 
-                                  stdout=subprocess.PIPE)
-        self.code_changes = 'diff --git' + 'diff --git'.join(git_command.stdout.decode("utf-8").split('diff --git')[1::])
+    """Generate a SECOM-compliant commit message for the changes in HEAD."""
+
+    def __init__(self, key=None, model=DEFAULT_MODEL) -> None:
+        api_key = key or os.environ.get("OPENAI_API_KEY")
+        if not api_key:
+            raise ValueError(
+                "No OpenAI API key provided. Pass --openai-key or set the "
+                "OPENAI_API_KEY environment variable."
+            )
+        self.client = OpenAI(api_key=api_key)
+        self.model = model
+        self.code_changes = self._read_head_diff()
         self.prompt = TEMPLATE + self.code_changes
-        
-    def run(self):
-        self.message = """vuln-fix: Sanitize HTML content in calendar event name function (CVE-2020-12345)
+        self.message = None
 
-# (what) A vulnerability was discovered in the calendar event name function, which could allow for HTML injection.
-# (why) If exploited, this vulnerability would allow an attacker to inject malicious HTML content into the application.
-# (how) The function was modified to remove HTML sanitization and instead rely on the prop type enforcement.
+    @staticmethod
+    def _read_head_diff() -> str:
+        """Return the diff hunks of HEAD, dropping the leading commit metadata."""
+        result = subprocess.run(
+            ["git", "show", "HEAD"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        output = result.stdout.decode("utf-8", errors="replace")
+        parts = output.split("diff --git")
+        if len(parts) <= 1:
+            return ""
+        return "diff --git" + "diff --git".join(parts[1:])
 
-Weakness: Improper Output Neutralization for Script Injection (CWE-79)
-Severity: Medium
-CVSS: 5.5
-Detection: Code Review
-Report: None
-Introduced in: 0d1f1b095
+    def run(self) -> str:
+        """Call the model and store the generated commit message."""
+        response = self.client.chat.completions.create(
+            model=self.model,
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": self.prompt},
+            ],
+            temperature=0.7,
+            max_tokens=500,
+        )
+        self.message = (response.choices[0].message.content or "").strip()
+        return self.message
 
-Reported-by: John Doe (john.doe@example.com)
-Reviewed-by: Jane Doe (jane.doe@example.com)
-Co-authored-by: Jack Doe (jack.doe@example.com)
-Signed-off-by: Bob Doe (bob.doe@example.com)
+    def print(self) -> None:
+        click.echo(click.style(self.message, fg="yellow"))
 
-Bug-tracker: None
-OR
-Resolves: None
-See also: None"""
-        
-        # openai.Completion.create(model="text-davinci-003", 
-        #                              prompt=self.prompt, 
-        #                              temperature=0.7, 
-        #                              max_tokens=500)['choices'][0]['text']
-        
-    def print(self):
-        click.echo(click.style(self.message, fg='yellow'))
+    def usage(self) -> str:
+        """Show the message and ask the user how to use it. Returns Y/N/C."""
+        self.print()
+        click.echo(
+            "\nWould you like to use this commit message?\n"
+            "(Y - Yes (default); N - No; C - Yes, but I want to change it.)"
+        )
+        self.response = (input("Enter your answer (Y/N/C): ").strip().upper() or "Y")
+        return self.response
 
-    def usage(self):
-        click.echo(click.style(self.message, fg='yellow'))
-        click.echo("""
-Would you like to use this commit message? 
-(Y - Yes (default); N - No; C - Yes, but I want to change it.)""")
-        self.response = input("Enter your answer (Y/N/C): ")
-        
-    def save(self):
-        git_command = subprocess.run(["git", "commit", "--amend", self.message], 
-                                  stdout=subprocess.PIPE)
-        print(git_command.stdout)
+    def save(self, edit: bool = False) -> None:
+        """Amend HEAD with the generated message. If edit, open the editor first."""
+        cmd = ["git", "commit", "--amend", "-m", self.message]
+        if edit:
+            cmd.insert(3, "-e")
+        result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        click.echo(result.stdout.decode("utf-8", errors="replace"))

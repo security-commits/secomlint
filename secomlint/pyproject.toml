@@ -31,7 +31,7 @@ dependencies = [
     "spacy",
     "pyyaml",
     "click",
-    "openai"
+    "openai>=1.0"
 ]
 
 [project.optional-dependencies]
@@ -40,7 +40,7 @@ test = [
     "pytest-cov",
     "coverage",
     "twine>=1.11.0",
-    "setuptools>=38.6.0",   
+    "setuptools>=38.6.0",
     "wheel>=0.31.0"
 ]
 

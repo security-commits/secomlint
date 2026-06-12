@@ -28,19 +28,34 @@ def read_message(file_path):
 @click.option("--compliance", is_flag=True, default=False, help="Show entire compliance report.")
 @click.option("--score", is_flag=True, default=False, help="Show compliance score.")
 @click.option("--quiet", is_flag=True, default=False, help="Show only compliance errors and warnings.")
-# @click.option("--generation", is_flag=True, default=False, help="Generates the commit message based on the code changes.")
+@click.option("--generation", is_flag=True, default=False, help="Generate a SECOM commit message from HEAD's code changes.")
 @click.option("--informativeness", is_flag=True, default=False, help="Checks how informative is the body.")
 # @click.option("--body", is_flag=True, default=False, help="Show how informative the message's body is.")
 @click.option("--out", help="Output file name.")
 @click.option("--csv", help="Run linter over a .csv of commit messages.")
 @click.option("--file-path", help="File with commit message to be linted.")
 @click.option("--rules-config", help="Rule configuration file path name.")
-# @click.option("--openai-key", help="Rule configuration file path name.")
-def main(compliance, score, quiet, informativeness, out, csv, file_path, rules_config):
+@click.option("--openai-key", help="OpenAI API key (overrides the OPENAI_API_KEY environment variable).")
+def main(compliance, score, quiet, generation, informativeness, out, csv, file_path, rules_config, openai_key):
     """Linter to check compliance against SECOM (https://security-commits.org/secom/)."""
-    
+
+    if generation:
+        try:
+            gen = Generation(key=openai_key)
+        except ValueError as exc:
+            raise click.UsageError(str(exc))
+        gen.run()
+        choice = gen.usage()
+        if choice == "C":
+            gen.save(edit=True)
+        elif choice == "N":
+            click.echo("Discarded.")
+        else:
+            gen.save()
+        return
+
     config = Config()
-    
+
     if compliance and csv:
         if not out:
             raise click.UsageError("--out is required when using --csv.")
