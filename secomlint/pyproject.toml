@@ -31,14 +31,16 @@ dependencies = [
     "spacy",
     "pyyaml",
     "click",
-    "openai>=1.0"
+    "openai>=2.0"
 ]
 
 [project.optional-dependencies]
+anthropic = ["anthropic>=0.40"]
 test = [
     "pytest",
     "pytest-cov",
     "coverage",
+    "anthropic>=0.40",
     "twine>=1.11.0",
     "setuptools>=38.6.0",
     "wheel>=0.31.0"

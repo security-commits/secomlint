@@ -5,7 +5,20 @@ import click
 from openai import OpenAI
 
 
-DEFAULT_MODEL = "gpt-4o-mini"
+# Default model per provider. Override with --model.
+DEFAULT_MODELS = {
+    "openai": "gpt-4o-mini",
+    "ollama": "llama3.2",
+    "anthropic": "claude-haiku-4-5-20251001",
+}
+
+# Ollama exposes an OpenAI-compatible API on this endpoint by default.
+OLLAMA_BASE_URL = "http://localhost:11434/v1"
+
+ENV_KEYS = {
+    "openai": "OPENAI_API_KEY",
+    "anthropic": "ANTHROPIC_API_KEY",
+}
 
 SYSTEM_PROMPT = (
     "You are an assistant that writes security commit messages following the "
@@ -45,20 +58,56 @@ for the code changes below:
 
 
 class Generation:
-    """Generate a SECOM-compliant commit message for the changes in HEAD."""
+    """Generate a SECOM-compliant commit message for the changes in HEAD.
 
-    def __init__(self, key=None, model=DEFAULT_MODEL) -> None:
-        api_key = key or os.environ.get("OPENAI_API_KEY")
-        if not api_key:
+    Supports OpenAI, a local/remote Ollama server (OpenAI-compatible API),
+    and Anthropic, selected via ``provider``.
+    """
+
+    def __init__(self, provider="openai", key=None, model=None, base_url=None) -> None:
+        if provider not in DEFAULT_MODELS:
             raise ValueError(
-                "No OpenAI API key provided. Pass --openai-key or set the "
-                "OPENAI_API_KEY environment variable."
+                f"Unknown provider '{provider}'. Choose from: "
+                f"{', '.join(sorted(DEFAULT_MODELS))}."
             )
-        self.client = OpenAI(api_key=api_key)
-        self.model = model
+        self.provider = provider
+        self.model = model or DEFAULT_MODELS[provider]
+        self._client = self._build_client(provider, key, base_url)
         self.code_changes = self._read_head_diff()
         self.prompt = TEMPLATE + self.code_changes
         self.message = None
+
+    def _build_client(self, provider, key, base_url):
+        if provider == "anthropic":
+            try:
+                from anthropic import Anthropic
+            except ImportError:
+                raise ValueError(
+                    "The 'anthropic' package is required for --provider anthropic. "
+                    "Install it with: pip install secomlint[anthropic]"
+                )
+            api_key = key or os.environ.get(ENV_KEYS["anthropic"])
+            if not api_key:
+                raise ValueError(self._missing_key_message("anthropic"))
+            return Anthropic(api_key=api_key)
+
+        if provider == "ollama":
+            # Local server: no real key needed, but the client requires one.
+            return OpenAI(base_url=base_url or OLLAMA_BASE_URL, api_key=key or "ollama")
+
+        # provider == "openai"
+        api_key = key or os.environ.get(ENV_KEYS["openai"])
+        if not api_key:
+            raise ValueError(self._missing_key_message("openai"))
+        return OpenAI(api_key=api_key, base_url=base_url)
+
+    @staticmethod
+    def _missing_key_message(provider) -> str:
+        env = ENV_KEYS[provider]
+        return (
+            f"No {provider} API key provided. Pass --api-key or set the "
+            f"{env} environment variable."
+        )
 
     @staticmethod
     def _read_head_diff() -> str:
@@ -76,16 +125,30 @@ class Generation:
 
     def run(self) -> str:
         """Call the model and store the generated commit message."""
-        response = self.client.chat.completions.create(
-            model=self.model,
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": self.prompt},
-            ],
-            temperature=0.7,
-            max_tokens=500,
-        )
-        self.message = (response.choices[0].message.content or "").strip()
+        if self.provider == "anthropic":
+            response = self._client.messages.create(
+                model=self.model,
+                max_tokens=1024,
+                system=SYSTEM_PROMPT,
+                messages=[{"role": "user", "content": self.prompt}],
+            )
+            self.message = "".join(
+                block.text
+                for block in response.content
+                if getattr(block, "type", None) == "text"
+            ).strip()
+        else:
+            # openai and ollama share the OpenAI-compatible Chat Completions API.
+            response = self._client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": self.prompt},
+                ],
+                temperature=0.7,
+                max_tokens=500,
+            )
+            self.message = (response.choices[0].message.content or "").strip()
         return self.message
 
     def print(self) -> None:
