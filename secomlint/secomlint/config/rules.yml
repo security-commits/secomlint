@@ -57,3 +57,11 @@ contact_has_co_authored_by:
 bugtracker_has_reference:
   active: true
   type: 0
+
+# Settings for the --generation feature. Not a compliance rule: read
+# separately by Config and overridable on the CLI (--provider/--model/
+# --base-url take precedence over these values).
+generation:
+  provider: openai          # openai | ollama | anthropic
+  model: gpt-4o-mini        # provider-specific model name
+  # base_url:               # e.g. http://localhost:11434/v1 for Ollama

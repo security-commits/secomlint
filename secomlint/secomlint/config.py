@@ -1,4 +1,3 @@
-import os
 from pathlib import Path
 from typing import Optional
 
@@ -6,6 +5,9 @@ from secomlint.utils import read_config
 
 
 class Config:
+    # Reserved top-level YAML keys that are not compliance rules.
+    GENERATION_KEY = "generation"
+
     def __init__(self, path: Optional[str] = None) -> None:
 
         # Build paths in a cross-platform manner
@@ -13,11 +15,16 @@ class Config:
         self.rules_config_path = base_dir / "rules.yml"
 
         # Read the default rules if the file exists; fallback to empty dict
-        self.default_rules = read_config(str(self.rules_config_path)) or {}
+        raw = read_config(str(self.rules_config_path)) or {}
+        # Keep generation settings (provider/model/base_url) out of the rules
+        # dict the Ruler consumes — it treats every key as a section rule.
+        self.generation = dict(raw.pop(self.GENERATION_KEY, {}) or {})
+        self.default_rules = raw
 
-        # Merge new rules if a path is provided
+        # Merge a user-provided config if a path is given
         if path is not None:
             new_rules = read_config(path) or {}
+            self.generation.update(new_rules.pop(self.GENERATION_KEY, {}) or {})
             self._merge_rules(new_rules)
 
     def _merge_rules(self, new_rules: dict) -> None:

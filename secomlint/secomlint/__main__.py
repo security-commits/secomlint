@@ -35,16 +35,23 @@ def read_message(file_path):
 @click.option("--csv", help="Run linter over a .csv of commit messages.")
 @click.option("--file-path", help="File with commit message to be linted.")
 @click.option("--rules-config", help="Rule configuration file path name.")
-@click.option("--provider", type=click.Choice(["openai", "ollama", "anthropic"]), default="openai", show_default=True, help="Model provider for --generation.")
-@click.option("--model", help="Model name for --generation (defaults per provider).")
+@click.option("--provider", type=click.Choice(["openai", "ollama", "anthropic"]), default=None, help="Model provider for --generation (overrides the config file).")
+@click.option("--model", help="Model name for --generation (overrides the config file).")
 @click.option("--api-key", help="API key for the chosen provider (overrides its environment variable).")
-@click.option("--base-url", help="Custom base URL (e.g. a remote Ollama or OpenAI-compatible endpoint).")
+@click.option("--base-url", help="Custom base URL (overrides the config file; e.g. a remote Ollama or OpenAI-compatible endpoint).")
 def main(compliance, score, quiet, generation, informativeness, out, csv, file_path, rules_config, provider, model, api_key, base_url):
     """Linter to check compliance against SECOM (https://security-commits.org/secom/)."""
 
     if generation:
+        # Precedence for provider/model/base_url: CLI flag > config file > code default.
+        gen_cfg = Config(path=rules_config).generation
         try:
-            gen = Generation(provider=provider, key=api_key, model=model, base_url=base_url)
+            gen = Generation(
+                provider=provider or gen_cfg.get("provider") or "openai",
+                key=api_key,
+                model=model or gen_cfg.get("model"),
+                base_url=base_url or gen_cfg.get("base_url"),
+            )
         except ValueError as exc:
             raise click.UsageError(str(exc))
         gen.run()
