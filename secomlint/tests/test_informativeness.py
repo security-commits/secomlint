@@ -1,5 +1,7 @@
 from types import SimpleNamespace
 
+from security_ner import Entity
+
 from secomlint.informativeness import Informativeness
 from secomlint.section import Body, Metadata
 
@@ -16,9 +18,8 @@ def _meta(tag, entities):
     return Metadata(lines=f"{tag}: x", tag=tag, entities=entities)
 
 
-def test_body_secwords_are_case_insensitive():
-    # patterns.jsonl emits both 'secword' and 'SECWORD'; both must be collected.
-    body = _body([("overflow", "secword", ""), ("xss", "SECWORD", ""), ("ip", "URL", "")])
+def test_body_secwords_are_collected():
+    body = _body([Entity("overflow", "SECWORD"), Entity("xss", "SECWORD"), Entity("ip", "URL")])
     info = Informativeness(_message(body))
 
     info.check_body()
@@ -27,7 +28,7 @@ def test_body_secwords_are_case_insensitive():
 
 
 def test_no_body_does_not_raise():
-    meta = _meta("weakness", [("cwe-79", "CWEID", "")])
+    meta = _meta("weakness", [Entity("cwe-79", "CWEID")])
     info = Informativeness(_message(meta))  # no Body section
 
     result = info.evaluate()
@@ -37,12 +38,11 @@ def test_no_body_does_not_raise():
 
 
 def test_full_triage_is_high():
-    body = _body([("overflow", "secword", "")])
     sections = _message(
-        body,
-        _meta("weakness", [("cwe-79", "CWEID", "")]),
-        _meta("severity", [("high", "SEVERITY", "")]),
-        _meta("detection", [("code review", "DETECTION", "")]),
+        _body([Entity("overflow", "SECWORD")]),
+        _meta("weakness", [Entity("cwe-79", "CWEID")]),
+        _meta("severity", [Entity("high", "SEVERITY")]),
+        _meta("detection", [Entity("code review", "DETECTION")]),
     )
     info = Informativeness(sections)
 
@@ -57,14 +57,14 @@ def test_full_triage_is_high():
 
 def test_partial_triage_levels():
     # Only weakness present -> assessment only -> 1 system -> "low".
-    info = Informativeness(_message(_meta("weakness", [("cwe-79", "CWEID", "")])))
+    info = Informativeness(_message(_meta("weakness", [Entity("cwe-79", "CWEID")])))
     result = info.evaluate()
     assert (result["assessment"], result["detection"], result["prioritization"]) == (True, False, False)
     assert result["level"] == "low"
 
 
 def test_no_triage_is_none():
-    body = _body([("overflow", "secword", "")])
+    body = _body([Entity("overflow", "SECWORD")])
     info = Informativeness(_message(body))
     result = info.evaluate()
     assert result["level"] == "none"

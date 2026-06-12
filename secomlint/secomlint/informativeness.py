@@ -2,13 +2,8 @@ import click
 
 from secomlint.section import Body
 
-
-# Entity labels produced by the Extractor (patterns.jsonl). SECWORD appears in
-# both casings in the pattern set, so it is matched case-insensitively.
-SECWORD = "SECWORD"
-DETECTION = "DETECTION"
-CWEID = "CWEID"
-SEVERITY = "SEVERITY"
+from security_ner import CommonLabel
+from security_ner.models.commits.labels import SECWORD, DETECTION
 
 # Triage coverage -> informativeness level. The cutoffs are an ordinal over the
 # number of SECOM triage systems (Detection/Assessment/Prioritization) the
@@ -47,13 +42,14 @@ class Informativeness:
 
     @staticmethod
     def _has_label(entities, label):
-        return any(entity[1].upper() == label for entity in entities)
+        # Labels are canonical uppercase by the security_ner contract.
+        return any(entity.label == label for entity in entities)
 
     def check_body(self):
         """Collect the security-related words found in the body."""
         body_entities = self.entities.get("Body", [])
         self.body_secwords = {
-            entity[0] for entity in body_entities if entity[1].upper() == SECWORD
+            entity.text for entity in body_entities if entity.label == SECWORD
         }
         return self.body_secwords
 
@@ -61,8 +57,8 @@ class Informativeness:
         """Determine which SECOM triage systems the message supports."""
         all_entities = self._all_entities()
         self.detection = self._has_label(all_entities, DETECTION)
-        self.assessment = self._has_label(all_entities, CWEID)
-        self.prioritization = self._has_label(all_entities, SEVERITY)
+        self.assessment = self._has_label(all_entities, CommonLabel.CWEID)
+        self.prioritization = self._has_label(all_entities, CommonLabel.SEVERITY)
         return self.detection, self.assessment, self.prioritization
 
     def calculate_level(self):

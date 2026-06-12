@@ -1,5 +1,8 @@
 import re
 
+from security_ner import CommonLabel
+from security_ner.models.commits.labels import DETECTION
+
 
 class Result:
     def __init__(self, rule_name, result, wtype, wmessage) -> None:
@@ -50,8 +53,8 @@ class Rule:
         if self.value == 'entity':
             entities = section.entities
             if entities:
-                vuln_id = [list(entity)[0]
-                           for entity in entities if list(entity)[1] == 'VULNID']
+                vuln_id = [entity.text
+                           for entity in entities if entity.label == CommonLabel.VULNID]
                 if vuln_id:
                     if vuln_id_at_the_end(vuln_id[0].lower(), section_text):
                         return Result('header_ends_with_vuln_id', True, self.wtype,
@@ -91,8 +94,8 @@ class Rule:
         if 'weakness' == section.tag:
             entities = section.entities
             if entities:
-                weakness = [list(entity)[0]
-                            for entity in entities if list(entity)[1] == 'CWEID']
+                weakness = [entity.text
+                            for entity in entities if entity.label == CommonLabel.CWEID]
                 if weakness:
                     return Result('metadata_has_weakness', True, self.wtype,
                                    'Metadata mentions a weakness (CWE) id.')
@@ -105,8 +108,8 @@ class Rule:
         if 'severity' == section.tag:
             entities = section.entities
             if entities:
-                severity = [list(entity)[0] for entity in entities if list(
-                    entity)[1] == 'SEVERITY']
+                severity = [entity.text for entity in entities
+                            if entity.label == CommonLabel.SEVERITY]
                 if severity:
                     return Result('metadata_has_severity', True, self.wtype,
                                    f'Metadata mentions severity.')
@@ -119,8 +122,8 @@ class Rule:
         if 'detection' == section.tag:
             entities = section.entities
             if entities:
-                detection = [list(entity)[0] for entity in entities if list(
-                    entity)[1] == 'DETECTION']
+                detection = [entity.text for entity in entities
+                             if entity.label == DETECTION]
                 if detection:
                     return Result('metadata_has_detection', True, self.wtype,
                                    f'Metadata mentions detection method.')
@@ -133,8 +136,8 @@ class Rule:
         if 'report' == section.tag:
             entities = section.entities
             if entities:
-                url = [list(entity)[0]
-                       for entity in entities if list(entity)[1] == 'URL']
+                url = [entity.text
+                       for entity in entities if entity.label == CommonLabel.URL]
                 if url:
                     return Result('metadata_has_report', True, self.wtype,
                                    f'Metadata mentions report.')
@@ -154,8 +157,8 @@ class Rule:
         if 'introduced_in' == section.tag:
             entities = section.entities
             if entities:
-                sha = [list(entity)[0]
-                       for entity in entities if list(entity)[1] == 'SHA']
+                sha = [entity.text
+                       for entity in entities if entity.label == CommonLabel.SHA]
                 if sha:
                     return Result('metadata_has_introduced_in', True, self.wtype,
                                    f'Metadata mentions sha where vulnerability was introduced in.')
@@ -167,8 +170,8 @@ class Rule:
     def contact_has_reported_by(self, section):
         if 'reported_by' == section.tag and section.lines:
             entities = section.entities
-            email = [list(entity)[0]
-                     for entity in entities if list(entity)[1] == 'EMAIL']
+            email = [entity.text
+                     for entity in entities if entity.label == CommonLabel.EMAIL]
             if email:
                 return Result('contacts_has_reported_by', True, self.wtype,
                                f'Contacts section includes {self.value} info.')
@@ -180,8 +183,8 @@ class Rule:
     def contact_has_signed_off_by(self, section):
         if 'signed_off_by' == section.tag and section.lines:
             entities = section.entities
-            email = [list(entity)[0]
-                     for entity in entities if list(entity)[1] == 'EMAIL']
+            email = [entity.text
+                     for entity in entities if entity.label == CommonLabel.EMAIL]
             if email:
                 return Result('contact_has_signed_off_by', True, self.wtype,
                                f'Contacts section includes {self.value} info.')
@@ -193,8 +196,8 @@ class Rule:
     def contact_has_co_authored_by(self, section):
         if 'co_authored_by' == section.tag and section.lines:
             entities = section.entities
-            email = [list(entity)[0]
-                     for entity in entities if list(entity)[1] == 'EMAIL']
+            email = [entity.text
+                     for entity in entities if entity.label == CommonLabel.EMAIL]
             if email:
                 return Result('contacts_has_co_authored_by', True, self.wtype,
                                f'Contacts section includes {self.value} info.')
@@ -208,8 +211,8 @@ class Rule:
             line = ''.join(section.lines)
             if 'bug-tracker' in line:
                 entities = section.entities
-                url = [list(entity)[0]
-                       for entity in entities if list(entity)[1] == 'URL']
+                url = [entity.text
+                       for entity in entities if entity.label == CommonLabel.URL]
                 if url:
                     return Result('bugtracker_has_reference', True, self.wtype,
                                    f'Bug tracker section includes url.')
@@ -218,8 +221,8 @@ class Rule:
 
             if 'resolves' in line or 'see also' in line:
                 entities = section.entities
-                issue = [list(entity)[0]
-                         for entity in entities if list(entity)[1] == 'ISSUE']
+                issue = [entity.text
+                         for entity in entities if entity.label == CommonLabel.ISSUE]
                 if issue:
                     return Result('bugtracker_has_reference', True, self.wtype,
                                    f'Bug tracker section includes references to issues.')

@@ -35,9 +35,8 @@ class Message:
         self._ner = ner or load("commits")
 
     def _entities(self, lines: List[str]):
-        """Run the NER over the given lines and return (text, label, id) tuples."""
-        entities = self._ner.extract("\n".join(lines))
-        return [(entity.text, entity.label, entity.id) for entity in entities]
+        """Run the NER over the given lines and return a list of Entity objects."""
+        return self._ner.extract("\n".join(lines))
 
     def parse(self) -> None:
         """

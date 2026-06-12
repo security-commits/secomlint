@@ -102,12 +102,14 @@ def main(compliance, score, quiet, generation, informativeness, out, csv, file_p
                 msg_compliance.calculate_score()
                 df.at[idx, f"{col}_score"] = msg_compliance.score
                 
-                # Get entities
+                # Get entities (serialized as (text, label, id) tuples)
                 entities = []
                 for section in msg_message.sections:
                     if section.entities:
                         entities += section.entities
-                df.at[idx, f"{col}_entities"] = str(entities)
+                df.at[idx, f"{col}_entities"] = str(
+                    [(e.text, e.label, e.id) for e in entities]
+                )
 
         # Write the updated DataFrame to a CSV file
         df.to_csv(out, index=False)        
