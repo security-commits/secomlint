@@ -1,9 +1,9 @@
 # SECOMlint
 
-💯 Linter to measure compliance against the [SECOM](https://tqrg.github.io/secom/) convention. SECOM is a convention for making security commit messages more readable and structured. Check the [CONFIG.md](https://github.com/TQRG/secom/blob/main/CONFIG.md) file to know how to configure the template in your repository.
+💯 Linter to measure compliance against the [SECOM](https://security-commits.org/secom/) convention. SECOM is a convention for making security commit messages more readable and structured. Check the [CONFIG.md](https://github.com/security-commits/secom/blob/main/CONFIG.md) file to know how to configure the template in your repository.
 
 <p align="center">
-  <img width="900" src="https://raw.githubusercontent.com/TQRG/secomlint/main/assets/secomlint.svg">
+  <img width="900" src="https://raw.githubusercontent.com/security-commits/secomlint/main/assets/secomlint.svg">
 </p>
 
 🎬 Tool Demo: https://youtu.be/-1hzpMN_uFI
@@ -25,7 +25,7 @@ secomlint --help
 ```
 Usage: secomlint [OPTIONS]
 
-  Linter to check compliance against SECOM (https://tqrg.github.io/secom/).
+  Linter to check compliance against SECOM (https://security-commits.org/secom/).
 
 Options:
   --no-compliance        Show missing compliance.
@@ -45,7 +45,7 @@ Options:
 <br>💯 Calculate compliance score: `git log -1 --pretty=%B | secomlint --no-compliance --score`
 
 <p align="center">
-  <img width="900" src="https://raw.githubusercontent.com/TQRG/secomlint/main/assets/secomlint2.svg">
+  <img width="900" src="https://raw.githubusercontent.com/security-commits/secomlint/main/assets/secomlint2.svg">
 </p>
 
 
