@@ -42,7 +42,7 @@ class Compliance:
         no_rules = len(self.ruler.rules)
         rules_in_compliance = sum(
             [result.is_compliant for result in self.results])
-        self.score = (rules_in_compliance / no_rules)
+        self.score = (rules_in_compliance / no_rules) if no_rules else 0.0
 
     def report(self, quiet, score):
         def get_symbol(is_compliant, warning_type):
@@ -54,7 +54,7 @@ class Compliance:
             symbol = get_symbol(result.is_compliant, result.type)
             doc_link = click.style(result.link, fg="blue")
             if result.is_compliant and quiet:
-                return
+                continue
             click.echo(f"{symbol}  {result.message} {doc_link}")
 
         color = 'green' if self.errors == 0 and self.warnings == 0 else 'yellow'

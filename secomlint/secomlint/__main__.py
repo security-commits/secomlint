@@ -42,6 +42,8 @@ def main(compliance, score, quiet, informativeness, out, csv, file_path, rules_c
     config = Config()
     
     if compliance and csv:
+        if not out:
+            raise click.UsageError("--out is required when using --csv.")
         # Read the CSV file
         df = pd.read_csv(csv)
 
@@ -49,9 +51,14 @@ def main(compliance, score, quiet, informativeness, out, csv, file_path, rules_c
         # Iterate through rows with a progress bar
         for col in message_columns:
             for idx, row in tqdm(df.iterrows(), total=len(df), desc=f"Processing rows {col}"):
-                
+
+                # Skip rows with missing/non-text messages (e.g. NaN cells)
+                cell = row[col]
+                if pd.isna(cell) or not isinstance(cell, str):
+                    continue
+
                 # Get the message from the row
-                msg_message = row[col].lower().split("\n")
+                msg_message = cell.lower().split("\n")
 
                 # Initialize compliance checker
                 msg_compliance = Compliance(config)
