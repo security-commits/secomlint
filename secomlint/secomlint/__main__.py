@@ -64,6 +64,11 @@ def main(compliance, score, quiet, generation, informativeness, out, csv, file_p
             gen.save()
         return
 
+    if informativeness:
+        message = read_message(file_path)
+        Informativeness(message).report()
+        return
+
     config = Config()
 
     if compliance and csv:
