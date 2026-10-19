@@ -34,9 +34,18 @@ class Message:
         self.sections: List[Union[Header, Body, Metadata, Contact, Bugtracker]] = []
         self._ner = ner or load("commits")
 
-    def _entities(self, lines: List[str]):
-        """Run the NER over the given lines and return a list of Entity objects."""
-        return self._ner.extract("\n".join(lines))
+    def _extract_many(self, texts: List[str]):
+        """Run the NER over several texts in one batched pass.
+
+        Prefers the model's ``extract_many`` (spaCy ``nlp.pipe``); falls back to
+        per-text ``extract`` so older models (and simple test doubles) still work.
+        """
+        if not texts:
+            return []
+        batch = getattr(self._ner, "extract_many", None)
+        if batch is not None:
+            return batch(texts)
+        return [self._ner.extract(text) for text in texts]
 
     def parse(self) -> None:
         """
@@ -46,22 +55,25 @@ class Message:
         chunks = list(self._split_into_sections(self.text))
         # We may store lines for a 'bugtracker' section in progress
         bugtracker_section: Optional[Bugtracker] = None
+        # Build sections first (without entities), collecting the text each one
+        # needs the NER to analyze, then run the NER once over all of them.
+        pending = []  # list of (section, text_for_ner)
 
         for i, lines_chunk in enumerate(chunks):
             # Skip empty chunks
             if not lines_chunk:
                 continue
             if i == 0 and len(lines_chunk) == 1:
-                self.sections.append(
-                    Header(lines=lines_chunk, entities=self._entities(lines_chunk))
-                )
+                section = Header(lines=lines_chunk)
+                self.sections.append(section)
+                pending.append((section, "\n".join(lines_chunk)))
                 continue
 
             # Check if the chunk is recognized as a body
             if i == 1 and self._is_body_section(lines_chunk):
-                self.sections.append(
-                    Body(lines=lines_chunk, entities=self._entities(lines_chunk))
-                )
+                section = Body(lines=lines_chunk)
+                self.sections.append(section)
+                pending.append((section, "\n".join(lines_chunk)))
                 continue
 
             # Otherwise, parse the chunk line by line (Metadata, Contact, Bugtracker, etc.)
@@ -69,35 +81,26 @@ class Message:
                 # Try matching each known pattern. The first match wins.
                 metadata_tag = self._match_metadata(line)
                 if metadata_tag:
-                    self.sections.append(
-                        Metadata(
-                            lines=line,
-                            tag=metadata_tag,
-                            entities=self._entities([line])
-                        )
-                    )
+                    section = Metadata(lines=line, tag=metadata_tag)
+                    self.sections.append(section)
+                    pending.append((section, line))
                     continue
 
                 contact_tag = self._match_contact(line)
                 if contact_tag:
-                    self.sections.append(
-                        Contact(
-                            lines=line,
-                            tag=contact_tag,
-                            entities=self._entities([line])
-                        )
-                    )
+                    section = Contact(lines=line, tag=contact_tag)
+                    self.sections.append(section)
+                    pending.append((section, line))
                     continue
 
                 if self._is_bugtracker_line(line):
                     if bugtracker_section:
+                        # Extra lines extend the section but, as before, only
+                        # the first line's entities are recorded.
                         bugtracker_section.append_line(line)
                     else:
-                        bugtracker_section = Bugtracker(
-                            lines=[line],
-                            tag="reference",
-                            entities=self._entities([line])
-                        )
+                        bugtracker_section = Bugtracker(lines=[line], tag="reference")
+                        pending.append((bugtracker_section, line))
                     continue
             # If a bugtracker section was created or appended, finalize it for this chunk
             if bugtracker_section:
@@ -105,9 +108,16 @@ class Message:
                 # Reset if only one Bugtracker section is allowed; if you expect multiple, adjust accordingly
                 bugtracker_section = None
 
+        # Single batched NER pass; results align one-to-one with `pending`.
+        entity_lists = self._extract_many([text for _, text in pending])
+        for (section, _), entities in zip(pending, entity_lists):
+            section.set_entities(entities)
+
         # Ensure all metadata/contact tags exist (i.e., create placeholders if missing)
         self._ensure_all_metadata_exists()
         self._ensure_all_contacts_exist()
+        self._ensure_body_exists()
+        self._ensure_bugtracker_exists()
 
     def _split_into_sections(self, lines: List[str]) -> Iterator[List[str]]:
         """
@@ -235,6 +245,24 @@ class Message:
                 self.sections.append(
                     Contact(lines=None, tag=tag.replace("-", "_"), entities=None)
                 )
+
+    def _ensure_body_exists(self) -> None:
+        """
+        Ensure a Body section exists so its rules are always evaluated and
+        reported (consistent with metadata/contacts). Uses an empty placeholder
+        (an empty list, never None) because the body rules index section.lines
+        directly.
+        """
+        if not any(isinstance(section, Body) for section in self.sections):
+            self.sections.append(Body(lines=[], entities=None))
+
+    def _ensure_bugtracker_exists(self) -> None:
+        """
+        Ensure a Bugtracker section exists so its rule is always evaluated and
+        reported, even when the message carries no bug-tracker reference.
+        """
+        if not any(isinstance(section, Bugtracker) for section in self.sections):
+            self.sections.append(Bugtracker(lines=[], tag="reference", entities=None))
 
     def get_sections(self) -> List[Union[Header, Body, Metadata, Contact, Bugtracker]]:
         """

@@ -1,7 +1,6 @@
 import re
 
 from security_ner import CommonLabel
-from security_ner.models.commits.labels import DETECTION
 
 
 class Result:
@@ -10,17 +9,26 @@ class Result:
         self.is_compliant = result
         self.type = wtype
         self.message = wmessage
-        self.link = f"[\u001b]8;;https://security-commits.org/secomlint/#/secomlint-rules?id={self.rule_name.replace('_', '-')}\u001b\\{self.rule_name}\u001b]8;;\u001b\\]"
+        # Plain documentation URL (used in JSON output) and the terminal
+        # hyperlink that wraps it (used in the colored report).
+        self.doc = f"https://security-commits.org/secomlint/#/secomlint-rules?id={self.rule_name.replace('_', '-')}"
+        self.link = f"[\u001b]8;;{self.doc}\u001b\\{self.rule_name}\u001b]8;;\u001b\\]"
 
 
 class Rule:
-    def __init__(self, name, active, wtype, value, section, tag=None) -> None:
+    def __init__(self, name, active, wtype, value, section, tag=None,
+                 check=None, requires_label=None, subject=None) -> None:
         self.name = name
         self.active = active
         self.wtype = wtype
         self.value = value
         self.section = section
         self.tag = tag
+        # Data-driven checks: `check` names a generic handler (e.g. "entity_label")
+        # instead of a per-rule method; `requires_label`/`subject` parametrize it.
+        self.check = check
+        self.requires_label = requires_label
+        self.subject = subject
 
     def header_max_length(self, section):
         section_text = ''.join(section.lines)
@@ -40,7 +48,7 @@ class Rule:
 
     def header_starts_with_type(self, section):
         section_text = ''.join(section.lines)
-        if re.search(rf"^{self.value}.*", section_text):
+        if re.search(rf"^{re.escape(self.value)}:", section_text):
             return Result('header_starts_with_type', True, self.wtype,
                            f'Header starts with {self.value} type')
         return Result('header_starts_with_type', False, self.wtype,
@@ -48,7 +56,7 @@ class Rule:
 
     def header_ends_with_vuln_id(self, section):
         def vuln_id_at_the_end(value, text):
-            return re.search(rf".*{value}(\))?$", text)
+            return re.search(rf".*{re.escape(value)}(\))?$", text)
         section_text = ''.join(section.lines)
         if self.value == 'entity':
             entities = section.entities
@@ -68,8 +76,8 @@ class Rule:
 
     def body_max_length(self, section):
         if section.lines:
-            body = ''.join(section.lines)
-            if len(body) <= self.value:
+            body = ' '.join(section.lines)
+            if len(body.split()) <= self.value:
                 return Result('body_max_length', True, self.wtype,
                                f'Body size is within the max length ({self.value} words).')
         return Result('body_max_length', False, self.wtype,
@@ -84,126 +92,59 @@ class Rule:
                        'Body is empty.')
 
     def body_has_three_paragraphs(self, section):
-        if len(section.lines) == 3:
+        # The parser strips blank lines, so paragraph boundaries are not
+        # available here; we approximate "what/why/how" by requiring at least
+        # three content lines rather than exactly three.
+        if section.lines and len(section.lines) >= 3:
             return Result('body_has_three_paragraphs', True, self.wtype,
-                           'Body follows the what, why and how structure (three paragraphs).')
+                           'Body follows the what, why and how structure (at least three paragraphs).')
         return Result('body_has_three_paragraphs', False, self.wtype,
-                       'Body doesn\'t follow the what, why and how structure (three paragraphs).')
+                       'Body doesn\'t follow the what, why and how structure (at least three paragraphs).')
 
-    def metadata_has_weakness(self, section):
-        if 'weakness' == section.tag:
-            entities = section.entities
-            if entities:
-                weakness = [entity.text
-                            for entity in entities if entity.label == CommonLabel.CWEID]
-                if weakness:
-                    return Result('metadata_has_weakness', True, self.wtype,
-                                   'Metadata mentions a weakness (CWE) id.')
-                return Result('metadata_has_weakness', False, self.wtype,
-                               'Metadata has tag weakness but a weakness (CWE) id was not mentioned.')
-        return Result('metadata_has_weakness', False, self.wtype,
-                       'Metadata section is missing weakness tag/mention.')
-
-    def metadata_has_severity(self, section):
-        if 'severity' == section.tag:
-            entities = section.entities
-            if entities:
-                severity = [entity.text for entity in entities
-                            if entity.label == CommonLabel.SEVERITY]
-                if severity:
-                    return Result('metadata_has_severity', True, self.wtype,
-                                   f'Metadata mentions severity.')
-                return Result('metadata_has_severity', False, self.wtype,
-                               f'Metadata section has severity tag but is missing vulnerability severity /mention.')
-        return Result('metadata_has_severity', False, self.wtype,
-                       f'Metadata section is missing vulnerability severity tag/mention.')
-
-    def metadata_has_detection(self, section):
-        if 'detection' == section.tag:
-            entities = section.entities
-            if entities:
-                detection = [entity.text for entity in entities
-                             if entity.label == DETECTION]
-                if detection:
-                    return Result('metadata_has_detection', True, self.wtype,
-                                   f'Metadata mentions detection method.')
-                return Result('metadata_has_detection', False, self.wtype,
-                        f'Metadata section has detection tag but is missing detection method mention.')
-        return Result('metadata_has_detection', False, self.wtype,
-                       f'Metadata section is missing detection method tag/mention.')
-
-    def metadata_has_report(self, section):
-        if 'report' == section.tag:
-            entities = section.entities
-            if entities:
-                url = [entity.text
-                       for entity in entities if entity.label == CommonLabel.URL]
-                if url:
-                    return Result('metadata_has_report', True, self.wtype,
-                                   f'Metadata mentions report.')
-            return Result('metadata_has_report', False, self.wtype,
-                           f'Metadata has report tag but does not have link to it.')
-        return Result('metadata_has_report', False, self.wtype,
-                       f'Metadata section is missing report tag/mention.')
+    def entity_label(self, section):
+        """
+        Generic metadata check: the tagged section must carry an entity with
+        the required NER label. Parametrized via rules.yml
+        (check/requires_label/subject), replacing the per-tag metadata methods.
+        """
+        if self.tag == section.tag:
+            entities = section.entities or []
+            if any(entity.label == self.requires_label for entity in entities):
+                return Result(self.name, True, self.wtype,
+                               f'Metadata mentions {self.subject}.')
+            return Result(self.name, False, self.wtype,
+                           f'Metadata section has {self.tag} tag but no {self.subject} was found.')
+        return Result(self.name, False, self.wtype,
+                       f'Metadata section is missing {self.subject} tag/mention.')
 
     def metadata_has_cvss(self, section):
+        # security_ner has no CVSS label, so validate the value's shape instead
+        # of accepting any text: a CVSS is a numeric score or a vector string
+        # (which always carries digits, e.g. "7.5" or "CVSS:3.1/AV:N/...").
         if 'cvss' == section.tag and section.lines:
-            return Result('metadata_has_cvss', True, self.wtype,
-                           f'Metadata mentions cvss score.')
+            value = ''.join(section.lines).split(':', 1)[-1]
+            if re.search(r'\d', value):
+                return Result('metadata_has_cvss', True, self.wtype,
+                               f'Metadata mentions cvss score.')
+            return Result('metadata_has_cvss', False, self.wtype,
+                           f'Metadata has cvss tag but the value is not a valid score or vector.')
         return Result('metadata_has_cvss', False, self.wtype,
                        f'Metadata section is missing cvss tag/mention.')
 
-    def metadata_has_introduced_in(self, section):
-        if 'introduced_in' == section.tag:
-            entities = section.entities
-            if entities:
-                sha = [entity.text
-                       for entity in entities if entity.label == CommonLabel.SHA]
-                if sha:
-                    return Result('metadata_has_introduced_in', True, self.wtype,
-                                   f'Metadata mentions sha where vulnerability was introduced in.')
-            return Result('metadata_has_introduced_in', False, self.wtype,
-                           f'Metadata mentions introduced in tag but no sha was found.')
-        return Result('metadata_has_introduced_in', False, self.wtype,
-                       f'Metadata section is missing introduced in tag/mention.')
-
-    def contact_has_reported_by(self, section):
-        if 'reported_by' == section.tag and section.lines:
-            entities = section.entities
-            email = [entity.text
-                     for entity in entities if entity.label == CommonLabel.EMAIL]
-            if email:
-                return Result('contacts_has_reported_by', True, self.wtype,
+    def contact_email(self, section):
+        """
+        Generic contact check: the tagged contact line must carry an EMAIL
+        entity. Shared by reported-by/signed-off-by/co-authored-by via
+        rules.yml (check: contact_email); `value` holds the human tag name.
+        """
+        if self.tag == section.tag and section.lines:
+            entities = section.entities or []
+            if any(entity.label == CommonLabel.EMAIL for entity in entities):
+                return Result(self.name, True, self.wtype,
                                f'Contacts section includes {self.value} info.')
-            return Result('contacts_has_reported_by', False, 0,
+            return Result(self.name, False, self.wtype,
                            f'Contacts section includes tag for {self.value} but email is missing.')
-        return Result('contacts_has_reported_by', False, self.wtype,
-                       f'Contacts section is missing {self.value} info.')
-
-    def contact_has_signed_off_by(self, section):
-        if 'signed_off_by' == section.tag and section.lines:
-            entities = section.entities
-            email = [entity.text
-                     for entity in entities if entity.label == CommonLabel.EMAIL]
-            if email:
-                return Result('contact_has_signed_off_by', True, self.wtype,
-                               f'Contacts section includes {self.value} info.')
-            return Result('contact_has_signed_off_by', False, 0,
-                           f'Contacts section includes tag or mention for {self.value} but email is missing.')
-        return Result('contact_has_signed_off_by', False, self.wtype,
-                       f'Contacts section is missing {self.value} info.')
-
-    def contact_has_co_authored_by(self, section):
-        if 'co_authored_by' == section.tag and section.lines:
-            entities = section.entities
-            email = [entity.text
-                     for entity in entities if entity.label == CommonLabel.EMAIL]
-            if email:
-                return Result('contacts_has_co_authored_by', True, self.wtype,
-                               f'Contacts section includes {self.value} info.')
-            return Result('contacts_has_co_authored_by', True, 0,
-                           f'Contacts section includes tag or mention for {self.value} but email is missing.')
-        return Result('contacts_has_co_authored_by', False, self.wtype,
+        return Result(self.name, False, self.wtype,
                        f'Contacts section is missing {self.value} info.')
 
     def bugtracker_has_reference(self, section):
@@ -219,13 +160,14 @@ class Rule:
                 return Result('bugtracker_has_reference', False, self.wtype,
                                f'Bug tracker section mentions bug tracker but is missing url to it.')
 
-            if 'resolves' in line or 'see also' in line:
+            if 'resolves' in line or 'see also' in line or 'fixes' in line:
                 entities = section.entities
-                issue = [entity.text
-                         for entity in entities if entity.label == CommonLabel.ISSUE]
-                if issue:
+                refs = [entity.text
+                        for entity in entities
+                        if entity.label in (CommonLabel.ISSUE, CommonLabel.SHA)]
+                if refs:
                     return Result('bugtracker_has_reference', True, self.wtype,
-                                   f'Bug tracker section includes references to issues.')
+                                   f'Bug tracker section includes references to issues or commits.')
 
         return Result('bugtracker_has_reference', False, self.wtype,
                        f'Bug tracker section is missing bug-tracker info.')

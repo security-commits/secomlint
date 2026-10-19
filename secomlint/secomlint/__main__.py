@@ -1,4 +1,5 @@
 import sys
+import json
 import click
 import os
 import pandas as pd
@@ -30,6 +31,7 @@ def read_message(file_path):
 @click.option("--quiet", is_flag=True, default=False, help="Show only compliance errors and warnings.")
 @click.option("--generation", is_flag=True, default=False, help="Generate a SECOM commit message from HEAD's code changes.")
 @click.option("--informativeness", is_flag=True, default=False, help="Checks how informative is the body.")
+@click.option("--json", "as_json", is_flag=True, default=False, help="Emit the compliance report as JSON (sets a non-zero exit code on errors).")
 # @click.option("--body", is_flag=True, default=False, help="Show how informative the message's body is.")
 @click.option("--out", help="Output file name.")
 @click.option("--csv", help="Run linter over a .csv of commit messages.")
@@ -39,7 +41,7 @@ def read_message(file_path):
 @click.option("--model", help="Model name for --generation (overrides the config file).")
 @click.option("--api-key", help="API key for the chosen provider (overrides its environment variable).")
 @click.option("--base-url", help="Custom base URL (overrides the config file; e.g. a remote Ollama or OpenAI-compatible endpoint).")
-def main(compliance, score, quiet, generation, informativeness, out, csv, file_path, rules_config, provider, model, api_key, base_url):
+def main(compliance, score, quiet, generation, informativeness, as_json, out, csv, file_path, rules_config, provider, model, api_key, base_url):
     """Linter to check compliance against SECOM (https://security-commits.org/secom/)."""
 
     if generation:
@@ -77,6 +79,9 @@ def main(compliance, score, quiet, generation, informativeness, out, csv, file_p
         # Read the CSV file
         df = pd.read_csv(csv)
 
+        # Build the rule set once and reuse it for every row.
+        ruler = Ruler(Config(path=config.rules_config_path))
+
         message_columns = [col for col in df.columns if '_message' in col]
         # Iterate through rows with a progress bar
         for col in message_columns:
@@ -90,8 +95,8 @@ def main(compliance, score, quiet, generation, informativeness, out, csv, file_p
                 # Get the message from the row
                 msg_message = cell.lower().split("\n")
 
-                # Initialize compliance checker
-                msg_compliance = Compliance(config)
+                # Initialize compliance checker (reusing the shared ruler)
+                msg_compliance = Compliance(config, ruler=ruler)
                 
                 # Parse the message
                 msg_message = Message(msg_message)
@@ -117,10 +122,17 @@ def main(compliance, score, quiet, generation, informativeness, out, csv, file_p
     else:
         message = read_message(file_path)
         if message.sections:
-            compliance = Compliance(config)
-            compliance.check(message)
-            compliance.calculate_score()
-            compliance.report(quiet, score)
+            checker = Compliance(config)
+            checker.check(message)
+            checker.calculate_score()
+            if as_json:
+                click.echo(json.dumps(checker.to_dict(), indent=2))
+            else:
+                checker.report(quiet, score)
+            # Non-zero exit when there are errors, so the linter can gate CI
+            # and pre-commit hooks.
+            if checker.errors > 0:
+                sys.exit(1)
         return
 
 if __name__ == '__main__':
