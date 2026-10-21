@@ -1,3 +1,4 @@
+import os
 import re
 from typing import List, Optional, Iterator, Union
 
@@ -5,6 +6,21 @@ from secomlint.section import Header, Body, Metadata, Contact, Bugtracker
 from secomlint.tags import TAGS, CONTACT, METADATA, BUG_TRACKER
 
 from security_ner import load
+
+
+def default_model_name() -> str:
+    """Pick the NER model to use.
+
+    Offline by default: the bundled rule-based "commits" model, so secomlint
+    stays installable and runnable with no network. If a hosted endpoint is
+    configured (``SECURITY_NER_ENDPOINT``), switch to the "commits-remote"
+    client, which delegates extraction to the private, evolving model served
+    over an authenticated API. The selection is purely environment-driven, so
+    no code or CLI change is needed to move between offline and online.
+    """
+    if os.environ.get("SECURITY_NER_ENDPOINT"):
+        return "commits-remote"
+    return "commits"
 
 
 # Precompile regex for performance and clarity
@@ -26,13 +42,15 @@ class Message:
 
         :param lines: A list of raw lines (strings) that comprise the message.
         :param ner: A security_ner model. Defaults to the shared (cached)
-            "commits" model, so constructing many Messages does not reload it.
+            model chosen by ``default_model_name()`` (offline "commits", or
+            "commits-remote" when ``SECURITY_NER_ENDPOINT`` is set), so
+            constructing many Messages does not reload it.
         """
         self.raw_text: List[str] = lines
         # Make a shallow copy to avoid accidental in-place modifications.
         self.text: List[str] = lines[:]
         self.sections: List[Union[Header, Body, Metadata, Contact, Bugtracker]] = []
-        self._ner = ner or load("commits")
+        self._ner = ner or load(default_model_name())
 
     def _extract_many(self, texts: List[str]):
         """Run the NER over several texts in one batched pass.
