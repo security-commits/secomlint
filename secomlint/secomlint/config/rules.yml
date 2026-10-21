@@ -24,36 +24,67 @@ body_is_not_empty:
 body_has_three_paragraphs:
   active: true
   type: 1
+# Metadata rules that only require "tag T carries an entity with label L" are
+# data-driven: they share the generic `entity_label` checker, parametrized by
+# requires_label (a security_ner label) and subject (human wording).
 metadata_has_weakness:
   active: true
   type: 1
+  check: entity_label
+  requires_label: CWEID
+  subject: a weakness (CWE) id
 metadata_has_severity:
   active: true
   type: 1
+  check: entity_label
+  requires_label: SEVERITY
+  subject: severity
 metadata_has_detection:
   active: true
   type: 0
+  check: entity_label
+  requires_label: DETECTION
+  subject: detection method
 metadata_has_report:
   active: true
   type: 0
+  check: entity_label
+  requires_label: URL
+  subject: report link
 metadata_has_cvss:
   active: true
   type: 0
 metadata_has_introduced_in:
   active: true
   type: 0
+  check: entity_label
+  requires_label: SHA
+  subject: introduced-in commit
+# Contact rules share the generic `contact_email` checker: the tagged line must
+# carry an EMAIL entity. `value` is the human tag name used in the message.
 contact_has_reported_by:
   active: true
   type: 0
   value: 'reported-by'
+  check: contact_email
 contact_has_signed_off_by:
   active: true
-  type: 1
+  type: 0
   value: 'signed-off-by'
+  check: contact_email
 contact_has_co_authored_by:
   active: true
   type: 0
   value: 'co-authored-by'
+  check: contact_email
 bugtracker_has_reference:
   active: true
   type: 0
+
+# Settings for the --generation feature. Not a compliance rule: read
+# separately by Config and overridable on the CLI (--provider/--model/
+# --base-url take precedence over these values).
+generation:
+  provider: openai          # openai | ollama | anthropic
+  model: gpt-4o-mini        # provider-specific model name
+  # base_url:               # e.g. http://localhost:11434/v1 for Ollama

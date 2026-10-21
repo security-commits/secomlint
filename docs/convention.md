@@ -1,6 +1,6 @@
 # SECOM
 
-Sometimes commit messages generated to document the patches/fixes of known vulnerabilities are either poorly documented or do not seem to be security-related. [SECOM](https://tqrg.github.io/secom/) is a convention for making security commit messages more readable and structured. It organizes several bits of security-related information from vulnerabilities and their respective patches. 
+Sometimes commit messages generated to document the patches/fixes of known vulnerabilities are either poorly documented or do not seem to be security-related. [SECOM](https://security-commits.org/secom/) is a convention for making security commit messages more readable and structured. It organizes several bits of security-related information from vulnerabilities and their respective patches. 
 
 ```markup
 1   vuln-fix: subject/header containing summary of changes in ~50 characters (Vuln-ID)

@@ -1,6 +1,6 @@
-# SECOMlint [![Build Status](https://app.travis-ci.com/TQRG/secomlint.svg?branch=main)](https://app.travis-ci.com/TQRG/secomlint)
+# SECOMlint [![Build Status](https://app.travis-ci.com/security-commits/secomlint.svg?branch=main)](https://app.travis-ci.com/security-commits/secomlint)
 
-Linter to measure compliance against [SECOM](https://tqrg.github.io/secom/) convention. SECOM is a convention for making security commit messages more readable and structured. Check the [CONFIG.md](https://github.com/TQRG/secom/blob/main/CONFIG.md) file to know how to configure the template in your repository.
+Linter to measure compliance against [SECOM](https://security-commits.org/secom/) convention. SECOM is a convention for making security commit messages more readable and structured. Check the [CONFIG.md](https://github.com/security-commits/secom/blob/main/CONFIG.md) file to know how to configure the template in your repository.
 
 <p align="center">
   <img width="600" src="assets/secomlint.svg">
@@ -15,7 +15,7 @@ python -m spacy download en_core_web_lg
 
 From the source code:
 ```
-git clone https://github.com/TQRG/secomlint.git
+git clone https://github.com/security-commits/secomlint.git
 cd secomlint
 pip install .
 python -m spacy download en_core_web_lg
@@ -29,7 +29,7 @@ secomlint --help
 ```
 Usage: secomlint [OPTIONS]
 
-  Linter to check compliance against SECOM (https://tqrg.github.io/secom/).
+  Linter to check compliance against SECOM (https://security-commits.org/secom/).
 
 Options:
   --no-compliance        Show missing compliance.

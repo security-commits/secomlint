@@ -6,7 +6,7 @@ secomlint --help
 ```
 Usage: secomlint [OPTIONS]
 
-  Linter to check compliance against SECOM (https://tqrg.github.io/secom/).
+  Linter to check compliance against SECOM (https://security-commits.org/secom/).
 
 Options:
   --no-compliance        Show missing compliance.
@@ -23,7 +23,7 @@ Options:
 `git log -1 --pretty=%B | secomlint` where `git log -1 --pretty=%B` gets the commit message of the local commit.
 
 <p align="center">
-  <img width="900" src="https://raw.githubusercontent.com/TQRG/secomlint/main/assets/secomlint.svg">
+  <img width="900" src="https://raw.githubusercontent.com/security-commits/secomlint/main/assets/secomlint.svg">
 </p>
 
 ### Customized Run
@@ -32,7 +32,7 @@ Options:
 <br>💯 Calculate compliance score: `git log -1 --pretty=%B | secomlint --score`
 
 <p align="center">
-  <img width="900" src="https://raw.githubusercontent.com/TQRG/secomlint/main/assets/secomlint2.svg">
+  <img width="900" src="https://raw.githubusercontent.com/security-commits/secomlint/main/assets/secomlint2.svg">
 </p>
 
 ### Configuration

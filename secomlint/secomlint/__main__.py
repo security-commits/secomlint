@@ -1,6 +1,8 @@
 import sys
+import json
 import click
 import os
+import pandas as pd
 
 from secomlint.message import Message
 from secomlint.config import Config
@@ -13,8 +15,12 @@ from secomlint.section import Header
 
 from tqdm import tqdm
 
-def read_message():
-    raw_message = [line.lower() for line in sys.stdin]
+def read_message(file_path):
+    if file_path:
+        with open(file_path, 'r') as file:
+            raw_message = [line.lower() for line in file]
+    else:
+        raw_message = [line.lower() for line in sys.stdin]
     message = Message(raw_message)
     message.parse()
     return message
@@ -23,77 +29,111 @@ def read_message():
 @click.option("--compliance", is_flag=True, default=False, help="Show entire compliance report.")
 @click.option("--score", is_flag=True, default=False, help="Show compliance score.")
 @click.option("--quiet", is_flag=True, default=False, help="Show only compliance errors and warnings.")
-@click.option("--generation", is_flag=True, default=False, help="Generates the commit message based on the code changes.")
+@click.option("--generation", is_flag=True, default=False, help="Generate a SECOM commit message from HEAD's code changes.")
 @click.option("--informativeness", is_flag=True, default=False, help="Checks how informative is the body.")
+@click.option("--json", "as_json", is_flag=True, default=False, help="Emit the compliance report as JSON (sets a non-zero exit code on errors).")
 # @click.option("--body", is_flag=True, default=False, help="Show how informative the message's body is.")
 @click.option("--out", help="Output file name.")
 @click.option("--csv", help="Run linter over a .csv of commit messages.")
+@click.option("--file-path", help="File with commit message to be linted.")
 @click.option("--rules-config", help="Rule configuration file path name.")
-@click.option("--openai-key", help="Rule configuration file path name.")
-def main(compliance, score, quiet, generation, informativeness, out, csv, rules_config, openai_key):
-    """Linter to check compliance against SECOM (https://tqrg.github.io/secom/)."""
-    
-    if openai_key:
-        config = Config(openai_key=openai_key)
-        config.save_key()
-    
-    # if csv:
-    #     df = pd.read_csv(csv, escapechar="\\")
-    #     ruler = Ruler(Config(path=config))
-    #     for idx, row in tqdm(df.iterrows()):
-    #         commit_msg = [line.lower() for line in row['message'].split('\n')]
-    #         message = Message(commit_msg)
-    #         message.get_sections()
-            
-    #         warnings, entities = [], []
-    #         for section in message.sections:
-    #             warnings += ruler.compliance(section)
-    #             entities += section.entities
-    #         df.at[idx, 'entities'] = str(entities)
-    #         df.at[idx, 'score_com'] = compliance_score(ruler, warnings)
-            
-    #     df.to_csv(out,
-    #                 quoting=csv.QUOTE_NONNUMERIC,
-    #                 escapechar="\\",
-    #                 doublequote=False,
-    #                 index=False)
-    #     return
-    
+@click.option("--provider", type=click.Choice(["openai", "ollama", "anthropic"]), default=None, help="Model provider for --generation (overrides the config file).")
+@click.option("--model", help="Model name for --generation (overrides the config file).")
+@click.option("--api-key", help="API key for the chosen provider (overrides its environment variable).")
+@click.option("--base-url", help="Custom base URL (overrides the config file; e.g. a remote Ollama or OpenAI-compatible endpoint).")
+def main(compliance, score, quiet, generation, informativeness, as_json, out, csv, file_path, rules_config, provider, model, api_key, base_url):
+    """Linter to check compliance against SECOM (https://security-commits.org/secom/)."""
+
     if generation:
-        click.echo(click.style("Welcome to SECOMlint!", fg='blue'))
-        click.echo("Generating your security commit message...\n")
-        config = Config()
-        config.read_key()
-        
-        if config.openai_key:
-            generation = Generation(config.openai_key)
-            generation.run()
-            generation.print()
-            generation.save()
-            # generation.usage()
+        # Precedence for provider/model/base_url: CLI flag > config file > code default.
+        gen_cfg = Config(path=rules_config).generation
+        try:
+            gen = Generation(
+                provider=provider or gen_cfg.get("provider") or "openai",
+                key=api_key,
+                model=model or gen_cfg.get("model"),
+                base_url=base_url or gen_cfg.get("base_url"),
+            )
+        except ValueError as exc:
+            raise click.UsageError(str(exc))
+        gen.run()
+        choice = gen.usage()
+        if choice == "C":
+            gen.save(edit=True)
+        elif choice == "N":
+            click.echo("Discarded.")
         else:
-            click.echo("⚠️  OPENAI key is not configured.\n")
-            return
-    
-    if compliance:
-        if not sys.stdin.isatty(): 
-            message = read_message()
-            if message.sections:
-                compliance = Compliance(path=rules_config)
-                compliance.check(message)
-                compliance.calculate_score()
-                compliance.report(quiet, score)
-        
+            gen.save()
+        return
+
     if informativeness:
-        if not sys.stdin.isatty(): 
-            message = read_message()
-            if message.sections:
-                informativeness = Informativeness(message)
-                informativeness.check_body()
-                informativeness.report(True, False)
+        message = read_message(file_path)
+        Informativeness(message).report()
+        return
 
-    return
+    config = Config()
 
+    if compliance and csv:
+        if not out:
+            raise click.UsageError("--out is required when using --csv.")
+        # Read the CSV file
+        df = pd.read_csv(csv)
+
+        # Build the rule set once and reuse it for every row.
+        ruler = Ruler(Config(path=config.rules_config_path))
+
+        message_columns = [col for col in df.columns if '_message' in col]
+        # Iterate through rows with a progress bar
+        for col in message_columns:
+            for idx, row in tqdm(df.iterrows(), total=len(df), desc=f"Processing rows {col}"):
+
+                # Skip rows with missing/non-text messages (e.g. NaN cells)
+                cell = row[col]
+                if pd.isna(cell) or not isinstance(cell, str):
+                    continue
+
+                # Get the message from the row
+                msg_message = cell.lower().split("\n")
+
+                # Initialize compliance checker (reusing the shared ruler)
+                msg_compliance = Compliance(config, ruler=ruler)
+                
+                # Parse the message
+                msg_message = Message(msg_message)
+                msg_message.parse()
+                
+                # Check compliance and calculate score
+                msg_compliance.check(msg_message)
+                msg_compliance.calculate_score()
+                df.at[idx, f"{col}_score"] = msg_compliance.score
+                
+                # Get entities (serialized as (text, label, id) tuples)
+                entities = []
+                for section in msg_message.sections:
+                    if section.entities:
+                        entities += section.entities
+                df.at[idx, f"{col}_entities"] = str(
+                    [(e.text, e.label, e.id) for e in entities]
+                )
+
+        # Write the updated DataFrame to a CSV file
+        df.to_csv(out, index=False)        
+        return
+    else:
+        message = read_message(file_path)
+        if message.sections:
+            checker = Compliance(config)
+            checker.check(message)
+            checker.calculate_score()
+            if as_json:
+                click.echo(json.dumps(checker.to_dict(), indent=2))
+            else:
+                checker.report(quiet, score)
+            # Non-zero exit when there are errors, so the linter can gate CI
+            # and pre-commit hooks.
+            if checker.errors > 0:
+                sys.exit(1)
+        return
 
 if __name__ == '__main__':
     main()

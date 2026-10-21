@@ -6,7 +6,7 @@ Configuring SECOM's template in your repository is very simple! 🤩
 cd repository-path/
 cd .git/
 mkdir templates/
-wget https://raw.githubusercontent.com/TQRG/secom/main/template/commit.secom 
+wget https://raw.githubusercontent.com/security-commits/secom/main/template/commit.secom 
 ```
 
 Setting an alias in your github configuration `~/.gitconfig` for security commits is helpful to distinguish security commits from other types of commits. Add the following to your `~/.gitconfig` file:

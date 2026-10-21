@@ -53,13 +53,6 @@ Some of the `value` fields are extracted by the named entity recognition (NER) [
 * **value**: 75
 
 
-#### body-is-not-empty
-
-* **condition**: `section` has more than 0 characters
-* **type**: 1 (error)
-* **value**: 25
-
-
 #### body-has-three-paragraphs
 
 * **condition**: `body` has three paragraphs
